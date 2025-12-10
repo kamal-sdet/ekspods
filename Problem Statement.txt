@@ -1,0 +1,264 @@
+Problem Statement:
+We need to create a UI through which Jmeter Distributed Test can be executed on EKS/Kubernetes PODs.
+
+A UI where Tester can select: 
+AWS Region, 
+Instance Type, 
+TestPlan GitRepo URL, 
+Target Base URL,
+No. of PODS required, 
+No. of threads needed & Loop count.
+
+User Clicks on the "Create EKS Cluster" & a cluster should be created on the AWS-EKS having 2 instances/nodegroups:
+1st ec2 instance will run Master & Slave PODS
+2nd ec2 instance will run separate influxdb & Grafana PODS
+
+A testplan & testdata.csv will be fetched from the gitrepo & the testdata.csv should be splitted into the 
+parts as per the number of pods given. Then each splitted testdata part should be given to the each slave pods 
+for execution.
+For Example: If the Tester enters 3 Pods on UI then
+the pulled testdata.csv should be divided into 3 parts for each pod separately.
+testdata_part1.csv ---------->Slave POD1
+testdata_part2.csv ---------->Slave POD2
+testdata_part3.csv ---------->Slave POD3
+
+Slave Pods should perform the distributed test on the target base url given by the tester on UI & a results.jtl should be generated whenever the user clicks the "Download Results" button on UI.
+Then the Tester will click on View Dashboard button on UI & a Grafana dashboard should be open either on same UI or in other tab of browser.
+
+PODS will autoscale.
+If no test execution then PODS will downscale to 1 master-1 slave automatically.
+whenever the test begins, horizontal pods autoscaling(hpa) will be done as per the number of pods provided by the tester on UI.For this HPA Metrics Server is installed. 
+
+PersistentVolumeClaim(PVC) should be created on EBS using EBS CSI Driver.
+OIDC will be automatically installed fow AWS IAM authentication protocols.
+
+Folder Structure:
+
+jmeter-platform/
+├── .git/
+├── .venv/
+├── backend/
+│   ├── __pycache__/
+│   ├── templates/
+│   │   ├── jmeter-configmap.yaml.j2
+│   │   ├── jmeter-master-deployment.yaml.j2
+│   │   ├── jmeter-master-service.yaml.j2
+│   │   ├── jmeter-slaves-hpa.yaml.j2
+│   │   ├── jmeter-slaves-service.yaml.j2
+│   │   ├── jmeter-slaves-statefulset.yaml.j2
+│   │   ├── monitor-grafana.yaml.j2
+│   │   ├── monitor-influx.yaml.j2
+│   │   └── storageclass-and-pvcs.yaml
+│   ├── aws_utils.py
+│   ├── eks_jmeter_manager.py
+│   └── main.py
+│
+├── docker/
+│   ├── plugins/
+│   │   ├── cmdrunner-2.2.1.jar
+│   │   ├── JmeterInfluxDBBackendListenerClient-1.2.jar
+│   │   ├── jmeter-plugins-casutg-2.9.jar
+│   │   ├── jmeter-plugins-influxdb2-listener-2.3.jar
+│   │   └── jmeter-plugins-manager-1.11.jar
+│   ├── Dockerfile
+│   └── entrypoint.sh
+│
+├── frontend/
+│   ├── static/
+│   │   └── script.js
+│   └── index.html
+│
+├── results/
+
+
+Step by step Architecture Setup:
+--------------------------------
+
+1. Prerequisites
+----------------
+
+a. IAM User (with Administrator Access permissions). 
+	[ I created a User name: John (Not added in any security group) ]
+	[ Create an access key & Noted them down somewhere for future use ] 
+
+c. Windows machine with:
+
+    i)  Git Bash/Windows PowerShell
+
+    ii)Docker Desktop installed 
+
+    iii) Download These & copy inside the plugins/ folder
+		 jmeter-plugins-influxdb2-listener-2.3.jar 
+		 cmdrunner-2.2.1.jar
+		 JmeterInfluxDBBackendListenerClient-1.2.jar
+		 jmeter-plugins-casutg-2.9.jar
+		 jmeter-plugins-manager-1.11.jar 
+
+
+
+
+2. Install AWS CLI
+   ---------------
+	a. Download & install AWS CLI from 👉  https://awscli.amazonaws.com/AWSCLIV2.msi
+	b. Open GitBash/powershell & Configure CLI with your IAM credentials using command: aws configure 
+			AWS Access Key ID [None]: <paste-from-csv>
+			AWS Secret Access Key [None]: <paste-from-csv> 
+			Default region name [None]: ap-south-1          [This is For Mumbai Region]
+			Default output format [None]: json
+	c. Verify it : aws sts get-caller-identity                      [This will give Userid, Account, ARN of user]
+
+
+3. Install kubectl
+   ----------------
+	a. Open Gitbash/powershell & to install kubectl give command :
+	            curl -LO "https://dl.k8s.io/release/v1.19.6/bin/windows/amd64/kubectl.exe"
+	b. create a directory :  mkdir -p ~/bin
+	c. copy the kubectl to /bin directory:  mv kubectl.exe ~/bin/
+	d. set the kubectl path to environment variable PATH:
+		   echo 'export PATH=$HOME/bin:$PATH' >> ~/.bashrc
+		   source ~/.bashrc
+	e. verify the kubectl installation by :  kubectl version --client --short
+
+4. Install eksctl
+   ---------------
+	a. direct download eksctl from this given link: https://github.com/eksctl-io/eksctl?tab=readme-ov-file
+		  Direct download (latest release): AMD64/x86_64
+        b. unzip the downloaded folder "eksctl_Windows_arm64" 
+	c. Copy the eksctl file from downloaded folder to earlier created "C:\Users\kamal.tiwari\bin" folder 
+        d. Open Gitbash & write command :
+				echo 'alias eksctl="$HOME/bin/eksctl.exe"' >> ~/.bashrc
+				source ~/.bashrc 
+
+	e. move inside bin folder by giving the command : cd bin  
+	f. Then run command : eksctl.exe version    :This will show the eksctl version.
+
+5. Push the TestPlan & testdata.csv file to the GitHub repo
+(Already pushed tohttps://github.com/get2kamal-art/jmeter-testplans)
+Testplan 	: JPetStore_Registration.jmx
+Testdata.csv	: jPetStore_userData.csv
+
+6.  	Start Docker desktop Engine
+	cd C:\Users\kamal.tiwari\jmeter-platform\docker
+	docker login
+	docker build -t jmeter-custom:latest .
+	docker tag jmeter-custom:latest get2kamal/jmeter-custom:latest
+	docker push get2kamal/jmeter-custom:latest
+
+	In Gitbash, Run the following commands:
+	docker images | grep jmeter-custom			(To check the image status)
+	chmod +x entrypoint.sh					(To give execute permissions )
+	dos2unix entrypoint.sh					(converts the file entrypoint.sh from Windows format to 								 Linux/Unix format.)
+
+7. Open Powershell:
+   cd C:\Users\kamal.tiwari\jmeter-platform> 
+   run:  uvicorn backend.main:app --reload --port 8000
+         This will run the python backend webserver in backend written in main.py & will reload automatically whenever there 	 will be any changes deected in .py files. 
+
+   a.Open browser & type:  http://127.0.0.1:8000 
+   This will show the UI.
+   b. Wait for a while & all the dropdowns will be automatically filled with the AWS API values.
+      Select Region: ap-south-1 or any
+      Select Instance type: t3.xlarge (minimum 4vCPU 16GB needed)
+      Type No. of PODS:3 (Not more than 3 bcoz of memory restrictions)
+   c. Click on "Create EKS Cluster" Button.This will start creating Cluster on AWS-EKS.
+      Also logs will start showing in Powershell console.
+      Wait for 15-20 minutes till all pods like influxdb, Grafana created.
+      UI will show message "Cluster Ready"
+   
+8. Now, open another Powershell window & check the healthy pods:
+     cd C:\Users\kamal.tiwari\jmeter-platform> 
+	Run:	kubectl get pods -n jmeter
+	This will show all the master-slave PODS status
+
+	Run: kubectl get pods -n monitoring
+	This will show all the influxdb-grafana PODS status
+
+9. Now, go to UI, Click on "RUN TEST" button to run the Distributed test  
+      It will start the Test execution on the PODS
+      In powershell window, We can check the logs by:
+		kubectl logs -n jmeter deploy/jmeter-master -f       (for Master Logs)
+		kubectl logs -n jmeter jmeter-slaves-0 --tail=200    (for Slave-0 logs, Same for Slave-1,Slave-2)
+	
+		To restart a master POD:(delete & recreate)
+		kubectl rollout restart deployment/jmeter-master -n jmeter
+
+		To restart all slave PODS:(delete & recreate)
+		kubectl rollout restart statefulset/jmeter-slaves -n jmeter
+
+		
+		To move inside master pods shell:
+		kubectl exec -it -n jmeter deploy/jmeter-master -- bash
+
+	After Successfull execution,
+	Master logs will show "Test Run Successfull"
+	UI will show "Test Completed"
+
+10. Click on "Download Results" on UI to download the results.jtl file to the local.
+
+11. Whenever the distributed test is completed click "Delete EKS Cluster" button to delete the cluster from AWS EKS
+    or run on powershell:\
+		eksctl delete cluster --name jmeter-cluster
+   This will release all the EKS Cluster Resources.(Wait for around 10-15 mins. See the logs)
+
+
+
+Points to Remember:
+1. Cluster name : Jmeter-cluster
+   Jmeter-namespace: jmeter          (Master Slave PODs will run here)
+   monitoring-namespace: monitoring  (Influxdb & Grafana PODs will run here)
+   ndegroup-name: jmeter-nodes
+
+2. Slaves will register themselves on Port:1099 so that they can be identified by the master for connection setup.
+   Master will use port 50000 for data exchange with slaves like test plan distribution, collecting results etc.
+
+File/Code Details:
+
+1. Script.js: Calls backend API endpoints like /eks/create, /test/run & sends JSON data to API
+2. Main.py : It exposes the endpoints like /eks/create , /test/run
+3. eks_jmeter_manager.py : 	It uses 'eksctl' to create eks cluster.
+				Renders Jinja YAML files.
+				Runs 'kubectl apply' commands to deploy master, slave & all other pods
+				Runs Jmeter-master & Scale Slaves when required.
+				Fetch results.jtl
+4. aws.utils.py : It is a helper which talks to AWS via Python BOTO3.
+		  It has list_regions(), list_Instance_types() methods which run when UI Opens & bring region & 
+		   instancetypes to fill in dropdowns.
+
+5. jmeter-master-deployment.yaml.j2: 	It creates a master POD.
+					Reads testdata CSV file
+					Split into parts & distribute test data to all slaves evenly.
+					Executes jmeter in non-gui mode
+					Talkto all slaves via RMI
+
+6. jmeter-slaves-statefulset.yaml.j2:	Clones repo from GitHub
+					extract .jmx & .csv files
+					Runs jmeer slave engine
+					Waits for the master to start the test.
+
+7. jmeter-configmap.yaml.j2	:	It stores runtime parameters that every pod reads like target url, test data file.
+
+8. jmeter-slaves-hpa.yaml.j2	:	For HPA Autoscaling
+
+
+EXECUTION FLOW
+--------------
+
+1. Open UI Browser
+2. UI calls API(main.py) through script.js
+3. API gets list from AWS (aws_utils.py)
+4. we click on "Create EKS Cluster" button
+5. UI sends json to  /eks/create endpoint
+6. main.py calls eks_jmeter_manager.py
+7. Kubernetes cluster & Pods are created.
+8. We click on "TEST RUN" button
+9. Endpoint /test/run tells Jmeter master to start test
+10.Slaves Execute tests
+11. Jmeter MAster Stores results
+12. Download JTL File.
+ 
+
+
+
+
+
+
