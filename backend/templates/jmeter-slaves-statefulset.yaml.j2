@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jmeter-slaves
+  namespace: {{ NAMESPACE | default("jmeter") }}
+  labels:
+    app: jmeter-slaves
+
+spec:
+  serviceName: "jmeter-slaves"
+
+  # Replicas dynamically driven by MAX_SHARDS coming from UI
+  replicas: {{ MAX_SHARDS | default(1) | int }}
+
+  selector:
+    matchLabels:
+      app: jmeter-slaves
+
+  template:
+    metadata:
+      labels:
+        app: jmeter-slaves
+
+    spec:
+      nodeSelector:
+        eks.amazonaws.com/nodegroup: jmeter-nodes
+
+      initContainers:
+      - name: init-testplans
+        image: alpine/git:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: TESTPLAN_REPO
+          valueFrom:
+            configMapKeyRef:
+              name: jmeter-config
+              key: TESTPLAN_REPO
+        volumeMounts:
+        - name: testplans
+          mountPath: /testplans
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "🧹 Cleaning /testplans..."
+          rm -rf /testplans/*
+          echo "📥 Cloning repo: $TESTPLAN_REPO"
+          git clone --depth 1 "$TESTPLAN_REPO" /testplans/repo
+          cp /testplans/repo/*.jmx /testplans/ || true
+          cp /testplans/repo/*.csv /testplans/ || true
+          echo "📦 Testplans ready."
+
+      containers:
+      - name: jmeter-slave
+        image: get2kamal/jmeter-custom:{{ JMETER_IMAGE_TAG | default("latest") }}
+        imagePullPolicy: Always
+
+        securityContext:
+          runAsUser: 0
+
+        env:
+        - name: ROLE
+          value: "slave"
+
+        - name: NAMESPACE
+          value: "{{ NAMESPACE | default('jmeter') }}"
+
+        - name: SLAVE_SERVICE_NAME
+          value: "jmeter-slaves"
+
+        - name: JMETER_RMI_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: jmeter-config
+              key: JMETER_RMI_PORT
+
+        - name: TESTPLAN_REPO
+          valueFrom:
+            configMapKeyRef:
+              name: jmeter-config
+              key: TESTPLAN_REPO
+
+        - name: MAX_SHARDS
+          valueFrom:
+            configMapKeyRef:
+              name: jmeter-config
+              key: MAX_SHARDS
+
+        - name: DATA_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: jmeter-config
+              key: DATA_FILE
+
+        - name: HTTP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: jmeter-config
+              key: HTTP_PORT
+
+        - name: JVM_ARGS
+          value: >
+            -Dserver.rmi.ssl.disable=true
+            -Djmeterengine.remote.system.exit=true
+            -Dserver.exitaftertest=true
+            -Djava.rmi.server.hostname=$(HOSTNAME).jmeter-slaves.{{ NAMESPACE | default('jmeter') }}.svc.cluster.local
+            -Dserver.rmi.localport={{ JMETER_RMI_PORT | default("50000") }}
+
+        ports:
+        - name: jmeter-server
+          containerPort: 1099
+          protocol: TCP
+
+        - name: jmeter-rmi
+          containerPort: {{ JMETER_RMI_PORT | default("50000") }}
+          protocol: TCP
+
+        volumeMounts:
+        - name: testplans
+          mountPath: /testplans
+
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+
+      volumes:
+      - name: testplans
+        emptyDir: {}
+
+  volumeClaimTemplates: []

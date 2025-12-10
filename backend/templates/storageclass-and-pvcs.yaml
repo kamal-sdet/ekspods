@@ -1,0 +1,77 @@
+# ============================================================
+# StorageClass (CLUSTER-SCOPED) — FIXED
+# ------------------------------------------------------------
+# ❗ DO NOT PUT NAMESPACE HERE
+# 🔥 volumeBindingMode = WaitForFirstConsumer ensures EBS volumes
+# are created in the same AZ as the node selected for the pod.
+# ============================================================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-immediate
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  fsType: ext4
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+
+
+---
+# ============================================================
+# PVC FOR INFLUXDB  (MONITORING NAMESPACE)
+# ------------------------------------------------------------
+# This PVC will be created in same AZ as monitoring nodes
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: influxdb-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-immediate
+  resources:
+    requests:
+      storage: 20Gi
+
+
+---
+# ============================================================
+# PVC FOR GRAFANA (MONITORING NAMESPACE)
+# ------------------------------------------------------------
+# FIXED: avoids 'volume node affinity conflict'
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-immediate
+  resources:
+    requests:
+      storage: 10Gi
+
+
+---
+# ============================================================
+# OPTIONAL PVC FOR JMETER (JMETER NAMESPACE)
+# ------------------------------------------------------------
+# Used if slaves/master need persistent storage
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jmeter-pvc
+  namespace: jmeter
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-immediate
+  resources:
+    requests:
+      storage: 5Gi

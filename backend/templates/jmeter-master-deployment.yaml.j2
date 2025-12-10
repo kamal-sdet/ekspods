@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jmeter-master
+  namespace: {{ NAMESPACE | default("jmeter") }}
+  labels:
+    app: jmeter-master
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jmeter-master
+
+  template:
+    metadata:
+      labels:
+        app: jmeter-master
+
+    spec:
+      nodeSelector:
+        eks.amazonaws.com/nodegroup: jmeter-nodes
+
+      containers:
+        - name: jmeter-master
+          image: get2kamal/jmeter-custom:{{ JMETER_IMAGE_TAG | default("latest") }}
+          imagePullPolicy: Always
+
+          # 🚫 REMOVE command/args override
+          # let entrypoint.sh run normally
+
+          env:
+            - name: ROLE
+              value: "master"
+
+            - name: BACKEND_TRIGGER
+              value: "false"   # default; run_test() will patch to true
+
+            - name: TESTPLAN_REPO
+              valueFrom:
+                configMapKeyRef:
+                  name: jmeter-config
+                  key: TESTPLAN_REPO
+
+            - name: TARGET_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: jmeter-config
+                  key: TARGET_BASE_URL
+
+            - name: MAX_SHARDS
+              valueFrom:
+                configMapKeyRef:
+                  name: jmeter-config
+                  key: MAX_SHARDS
+
+            - name: HTTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: jmeter-config
+                  key: HTTP_PORT
+
+            - name: JMETER_RMI_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: jmeter-config
+                  key: JMETER_RMI_PORT
+
+            - name: JVM_ARGS
+              value: >
+                -Dserver.rmi.ssl.disable=true
+                -Djava.rmi.server.hostname=jmeter-master.{{ NAMESPACE | default('jmeter') }}.svc.cluster.local
+                -Djmeterengine.remote.system.exit=true
+                -Dserver.exitaftertest=true
+                -Dserver.rmi.localport={{ JMETER_RMI_PORT | default(50000) | int }}
+
+          ports:
+            - name: http
+              containerPort: {{ HTTP_PORT | default(8080) | int }}
+
+            - name: rmi
+              containerPort: {{ JMETER_RMI_PORT | default(50000) | int }}
+
+          volumeMounts:
+            - name: testplans
+              mountPath: /testplans
+            - name: results
+              mountPath: /results
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+
+      volumes:
+        - name: testplans
+          emptyDir: {}
+        - name: results
+          emptyDir: {}

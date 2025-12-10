@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jmeter-slaves
+  namespace: {{ NAMESPACE | default("jmeter") }}
+  labels:
+    app: jmeter-slaves
+
+spec:
+  # Headless service to enable stable DNS resolution for each ordinal
+  clusterIP: None
+
+  # Allow pod DNS entries before readiness
+  publishNotReadyAddresses: true
+
+  selector:
+    app: jmeter-slaves
+
+  ports:
+    # JMeter internal control port
+    - name: jmeter-control
+      port: 1099
+      targetPort: 1099
+      protocol: TCP
+
+    # Base RMI port used by slave-0
+    - name: jmeter-rmi-0
+      port: 50000
+      targetPort: 50000
+      protocol: TCP
+
+    # Dynamic RMI offset ports for additional slaves
+    # slave-1 --> 50001
+    - name: jmeter-rmi-1
+      port: 50001
+      targetPort: 50001
+      protocol: TCP
+
+    # slave-2 --> 50002
+    - name: jmeter-rmi-2
+      port: 50002
+      targetPort: 50002
+      protocol: TCP
+
+    # Future scalability ports
+    # Uncomment if shards > 3
+    # - name: jmeter-rmi-3
+    #   port: 50003
+    #   targetPort: 50003
+    #   protocol: TCP

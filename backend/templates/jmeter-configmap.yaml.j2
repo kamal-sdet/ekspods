@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jmeter-config
+  namespace: {{ NAMESPACE }}
+
+data:
+  TESTPLAN_REPO: "{{ TESTPLAN_REPO }}"
+  TARGET_BASE_URL: "{{ TARGET_BASE_URL }}"
+  MAX_SHARDS: "{{ MAX_SHARDS }}"
+  THREADS: "{{ THREADS }}"
+  LOOP_COUNT: "{{ LOOP_COUNT }}"
+  HTTP_PORT: "{{ HTTP_PORT }}"
+  JMETER_RMI_PORT: "{{ JMETER_RMI_PORT }}"
+  DATA_FILE: "{{ DATA_FILE | default('') }}"
+
+  user.properties: |
+    # ==============================
+    # JMeter Distributed Mode Config
+    # ==============================
+
+    server.rmi.ssl.disable=true
+    server.rmi.localport={{ JMETER_RMI_PORT }}
+    server_port={{ JMETER_RMI_PORT }}
+
+    jmeterengine.remote.system.exit=true
+    jmeterengine.nongui.port=4445
+    jmeterengine.nongui.maxport=4455
+
+    # ==============================
+    # InfluxDB Backend Listener
+    # ==============================
+    backend_influxdb.url=http://influxdb.{{ NAMESPACE }}.svc.cluster.local:8086/write?db=jmeter
+    backend_influxdb.application=JMeter-Distributed
+    backend_influxdb.measurement=jmeter
+    backend_influxdb.summaryOnly=false
+
+    # ==============================
+    # Save Options
+    # ==============================
+    jmeter.save.saveservice.timestamp_format=yyyy/MM/dd HH:mm:ss
+    jmeter.save.saveservice.default_delimiter=,

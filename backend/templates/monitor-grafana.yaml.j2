@@ -1,0 +1,166 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: {{ MONITORING_NAMESPACE }}
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+
+      # 👇 Run Grafana on monitoring nodegroup (NOT JMETER nodes)
+      nodeSelector:
+        eks.amazonaws.com/nodegroup: monitoring-nodes
+
+      securityContext:
+        runAsUser: 0
+        fsGroup: 0
+
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.0.0
+
+        ports:
+        - containerPort: 3000
+
+        env:
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "true"
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: "Viewer"
+        - name: GF_AUTH_DISABLE_LOGIN_FORM
+          value: "true"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: dashboards
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: dashboards-json
+          mountPath: /var/lib/grafana/dashboards
+
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc
+
+      # 👇 Dashboard provisioning definition
+      - name: dashboards
+        configMap:
+          name: grafana-dashboards
+
+      # 👇 InfluxDB datasource provisioning
+      - name: datasources
+        configMap:
+          name: grafana-datasource
+
+      # 👇 Actual JMeter dashboard JSON
+      - name: dashboards-json
+        configMap:
+          name: grafana-jmeter-dashboard
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: {{ MONITORING_NAMESPACE }}
+spec:
+  type: LoadBalancer
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+
+---
+# =========================
+# InfluxDB Datasource Config
+# =========================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource
+  namespace: {{ MONITORING_NAMESPACE }}
+data:
+  influx.yml: |
+    apiVersion: 1
+    datasources:
+    - name: JMeterMetrics
+      type: influxdb
+      access: proxy
+      url: http://influxdb.{{ MONITORING_NAMESPACE }}.svc.cluster.local:8086
+      database: jmeter
+      isDefault: true
+
+---
+# =========================
+# JMeter Dashboard Provisioning
+# =========================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: {{ MONITORING_NAMESPACE }}
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+    - name: JMeter
+      orgId: 1
+      folder: JMeter
+      type: file
+      disableDeletion: false
+      editable: true
+      updateIntervalSeconds: 10
+      options:
+        path: /var/lib/grafana/dashboards
+
+---
+# =========================
+# JMeter Dashboard JSON
+# =========================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-jmeter-dashboard
+  namespace: {{ MONITORING_NAMESPACE }}
+data:
+  jmeter-dashboard.json: |
+    {
+      "title": "JMeter Performance Dashboard",
+      "schemaVersion": 36,
+      "version": 1,
+      "editable": true,
+      "panels": [
+        {
+          "type": "graph",
+          "title": "Requests per Second",
+          "targets": [
+            {
+              "measurement": "jmeter",
+              "groupBy": [{"type": "time", "params": ["10s"]}],
+              "select": [
+                [
+                  { "type": "field", "params": ["count"] },
+                  { "type": "sum" }
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    }

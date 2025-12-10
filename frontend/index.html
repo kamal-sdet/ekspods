@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JMeter Automation UI</title>
+    <script src="static/script.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; margin: 25px; }
+        div { margin: 10px 0; }
+        label { width: 220px; display: inline-block; font-weight: bold; }
+        select, input { padding: 6px; width: 260px; }
+        button { padding: 10px 14px; margin: 10px 6px 0 0; cursor: pointer; }
+
+        #instance_info, #cluster_status_container {
+            margin-left: 220px;
+            margin-top: -5px;
+            margin-bottom: 6px;
+            font-size: 14px;
+        }
+
+        #cluster_status_container {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #f7f7f7;
+            width: 440px;
+        }
+
+        #cluster_status { font-weight: bold; color: blue; }
+    </style>
+</head>
+
+<body>
+
+<h2>JMeter + EKS Automation Platform</h2>
+
+<!-- REGION -->
+<div>
+    <label>AWS Region</label>
+    <select id="aws_region"></select>
+</div>
+
+<!-- INSTANCE -->
+<div>
+    <label>Instance Type</label>
+    <select id="instance_type"></select>
+</div>
+
+<!-- INSTANCE INFO -->
+<div id="instance_info">
+    Instance details:
+    <span id="instance_vcpus">vCPU: -</span> |
+    <span id="instance_memory">Memory: - GiB</span>
+</div>
+
+<!-- TESTPLAN REPO -->
+<div>
+    <label>TestPlan Repo</label>
+    <input id="testplan_repo" value="https://github.com/get2kamal-art/jmeter-testplans.git">
+</div>
+
+<!-- TARGET BASE URL -->
+<div>
+    <label>Target Base URL</label>
+    <input id="target_base_url" value="petstore.octoperf.com">
+</div>
+
+<!-- SHARDS -->
+<div>
+    <label>No. of PODs (MAX SHARDS)</label>
+    <input id="max_shards" value="5">
+</div>
+
+<!-- THREADS -->
+<div>
+    <label>THREADS</label>
+    <input id="threads" value="50">
+</div>
+
+<!-- LOOP COUNT -->
+<div>
+    <label>LOOP COUNT</label>
+    <input id="loop_count" value="10">
+</div>
+
+<!-- STATUS BOX -->
+<div id="cluster_status_container">
+    Cluster Status: <span id="cluster_status">Not Created</span>
+</div>
+
+<hr>
+
+<!-- ACTION BUTTONS -->
+<button onclick="createCluster()">CREATE EKS CLUSTER</button>
+<button onclick="runTest()">RUN TEST</button>
+<button onclick="downloadResults()">DOWNLOAD RESULTS</button>
+<button onclick="deleteCluster()">DELETE EKS CLUSTER</button>
+
+<button id="dashboard_btn" onclick="openGrafana()" disabled>
+    View JMeter Dashboard
+</button>
+
+<script>
+async function openGrafana() {
+    const resp = await fetch("/grafana/url");
+    const data = await resp.json();
+    if (data.url) window.open(data.url, "_blank");
+    else alert("Grafana URL not found. Cluster not ready?");
+}
+</script>
+
+</body>
+</html>
